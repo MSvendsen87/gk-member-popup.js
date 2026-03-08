@@ -14,7 +14,7 @@
     showOncePerDay: false,
     showDiscountIntro: true,
     showBenefitCard: true,
-    showMinBaggPromo: true,
+    showMinBaggPromo: false,
 
     sessionKeyPrefix: "gk_member_popup_seen",
     dailyKeyPrefix: "gk_member_popup_daily",
