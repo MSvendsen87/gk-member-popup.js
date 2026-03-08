@@ -1,11 +1,6 @@
 (function () {
   "use strict";
 
-  /* =========================================================
-     GK MEMBER POPUP CONFIG
-     Her kan du enkelt skru av/på og endre tekst/priser/grupper
-     ========================================================= */
-
   var CONFIG = {
     debug: true,
 
@@ -13,28 +8,16 @@
     memberApi: "https://cold-shadow-36dc.post-cd6.workers.dev/club-members",
     minBaggUrl: "https://golfkongen.no/sider/min-bag",
 
-    /* =========================
-       BRYTERE (true / false)
-       ========================= */
-
-    popupEnabled: true,              // false = hele popupen er av
-    showOnCustomerIndexOnly: true,   // true = kun /customer/index
-    showEveryLogin: true,            // true = vis ved hver login / ny bruker i samme økt
-    showOncePerDay: false,           // true = vis maks én gang per dag per bruker
-    showDiscountIntro: true,         // true = vis tydelig rabattvarsel for brukere med rabatter
-    showBenefitCard: true,           // true = vis "Dine fordeler"
-    showMinBaggPromo: false,          // true = vis Min Bagg + gavekort i bunnen
-
-    /* =========================
-       Nøkler for lagring
-       ========================= */
+    popupEnabled: true,
+    showOnCustomerIndexOnly: true,
+    showEveryLogin: true,
+    showOncePerDay: false,
+    showDiscountIntro: true,
+    showBenefitCard: true,
+    showMinBaggPromo: true,
 
     sessionKeyPrefix: "gk_member_popup_seen",
     dailyKeyPrefix: "gk_member_popup_daily",
-
-    /* =========================
-       Tekster
-       ========================= */
 
     texts: {
       introDiscount:
@@ -53,11 +36,6 @@
       defaultLabel: ""
     },
 
-    /* =========================
-       Gruppeoppsett
-       Høyere priority = sterkere fordel
-       ========================= */
-
     groups: {
       ansatte: {
         label: "Ansatte",
@@ -65,7 +43,6 @@
         discBookingText: "98% rabatt på booking av disc simulator",
         dartBookingText: "98% rabatt på booking av dart",
         clubNight: true,
-
         retailPriority: 100,
         discBookingPriority: 100,
         dartBookingPriority: 100
@@ -77,7 +54,6 @@
         discBookingText: "Disc simulator til 100 kr timen",
         dartBookingText: "",
         clubNight: false,
-
         retailPriority: 90,
         discBookingPriority: 90,
         dartBookingPriority: 0
@@ -89,7 +65,6 @@
         discBookingText: "Disc simulator til 100 kr timen",
         dartBookingText: "",
         clubNight: false,
-
         retailPriority: 80,
         discBookingPriority: 80,
         dartBookingPriority: 0
@@ -101,7 +76,6 @@
         discBookingText: "Disc simulator til 100 kr timen",
         dartBookingText: "",
         clubNight: false,
-
         retailPriority: 0,
         discBookingPriority: 70,
         dartBookingPriority: 0
@@ -113,7 +87,6 @@
         discBookingText: "Disc simulator til 120 kr timen",
         dartBookingText: "",
         clubNight: false,
-
         retailPriority: 50,
         discBookingPriority: 50,
         dartBookingPriority: 0
@@ -125,17 +98,12 @@
         discBookingText: "",
         dartBookingText: "Dart til 100 kr timen",
         clubNight: true,
-
         retailPriority: 50,
         discBookingPriority: 0,
         dartBookingPriority: 50
       }
     }
   };
-
-  /* =========================================================
-     HJELPEFUNKSJONER
-     ========================================================= */
 
   function log() {
     if (!CONFIG.debug) return;
@@ -216,6 +184,9 @@
 
   async function isLoggedIn() {
     try {
+      if (document.querySelector(".customer-nav-name")) return true;
+      if (document.querySelector('a[href*="/customer/logout"]')) return true;
+
       var r = await fetchSameOrigin("/customer/index");
       var html = await r.text();
 
@@ -230,11 +201,40 @@
     }
   }
 
+  function getIdentityFromCurrentPage() {
+    try {
+      var nameEl = document.querySelector(".customer-nav-name");
+      var name = nameEl ? decodeHtml(nameEl.textContent || "") : "";
+      name = String(name || "").trim();
+
+      var bodyText = document.body ? document.body.innerText || "" : "";
+      var emailMatch = bodyText.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/ig);
+      var email = emailMatch && emailMatch.length ? String(emailMatch[0]).trim() : "";
+
+      if (name || email) {
+        return {
+          path: location.pathname || "",
+          name: name,
+          email: email
+        };
+      }
+    } catch (e) {
+      log("getIdentityFromCurrentPage error", e);
+    }
+
+    return null;
+  }
+
   async function getLoggedInIdentity() {
+    var fromPage = getIdentityFromCurrentPage();
+    if (fromPage && (fromPage.name || fromPage.email)) {
+      return fromPage;
+    }
+
     var paths = [
+      "/customer/index",
       "/customer/details",
       "/customer/account",
-      "/customer/index",
       "/customer/orders"
     ];
 
@@ -365,7 +365,6 @@
     return {
       labels: labels,
       lines: lines,
-      hasClubNight: hasClubNight,
       hasAnyDiscountInfo: hasAnyDiscountInfo
     };
   }
@@ -382,7 +381,8 @@
         benefitLines: [],
         showBenefitCard: false,
         minBaggTitle: CONFIG.texts.minBaggTitle,
-        minBaggText: CONFIG.texts.minBaggText
+        minBaggText: CONFIG.texts.minBaggText,
+        hasDiscountInfo: false
       };
     }
 
@@ -396,35 +396,25 @@
       benefitLines: resolved.lines,
       showBenefitCard: CONFIG.showBenefitCard && resolved.lines.length > 0,
       minBaggTitle: CONFIG.texts.minBaggTitle,
-      minBaggText: CONFIG.texts.minBaggText
+      minBaggText: CONFIG.texts.minBaggText,
+      hasDiscountInfo: resolved.hasAnyDiscountInfo
     };
   }
 
   function shouldShowPopup(identity) {
-    if (!CONFIG.popupEnabled) {
-      log("popup disabled");
-      return false;
-    }
+    if (!CONFIG.popupEnabled) return false;
 
-    if (CONFIG.showEveryLogin) {
-      return true;
-    }
+    if (CONFIG.showEveryLogin) return true;
 
     try {
       if (CONFIG.showOncePerDay) {
         var dailyKey = getUserDailyKey(identity);
-        if (localStorage.getItem(dailyKey) === "1") {
-          log("already shown today for user", dailyKey);
-          return false;
-        }
+        if (localStorage.getItem(dailyKey) === "1") return false;
         return true;
       }
 
       var sessionKey = getUserSessionKey(identity);
-      if (sessionStorage.getItem(sessionKey) === "1") {
-        log("already shown this session for user", sessionKey);
-        return false;
-      }
+      if (sessionStorage.getItem(sessionKey) === "1") return false;
     } catch (e) {
       log("shouldShowPopup storage check failed", e);
     }
@@ -447,81 +437,109 @@
     }
   }
 
-  /* =========================================================
-     UI
-     ========================================================= */
-
   function ensureStyles() {
     if (document.getElementById("gk-member-popup-style")) return;
 
     var css = `
 #gk-member-popup-overlay{
-  position:fixed; inset:0; z-index:999999;
-  display:flex; align-items:center; justify-content:center;
-  background:rgba(5,10,18,.72);
+  position:fixed;
+  inset:0;
+  z-index:999999;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  background:rgba(4,9,16,.62);
+  backdrop-filter:blur(5px);
+  -webkit-backdrop-filter:blur(5px);
   padding:18px;
+  animation:gkmpFadeIn .18s ease-out both;
 }
 #gk-member-popup{
-  width:min(92vw,580px);
-  background:linear-gradient(180deg,#101826 0%,#0c121d 100%);
+  width:min(92vw,600px);
+  background:
+    radial-gradient(circle at top right, rgba(159,214,111,.12), transparent 28%),
+    linear-gradient(180deg,#111a28 0%,#0c121d 100%);
   color:#eef4fb;
-  border:1px solid rgba(255,255,255,.08);
-  border-radius:22px;
-  box-shadow:0 18px 60px rgba(0,0,0,.45);
+  border:1px solid rgba(255,255,255,.09);
+  border-radius:24px;
+  box-shadow:0 24px 80px rgba(0,0,0,.50);
   overflow:hidden;
   font-family:inherit;
+  transform:translateY(16px) scale(.985);
+  opacity:0;
+  animation:gkmpPopupIn .24s cubic-bezier(.2,.8,.2,1) .03s forwards;
+}
+@keyframes gkmpFadeIn{
+  from{opacity:0;}
+  to{opacity:1;}
+}
+@keyframes gkmpPopupIn{
+  from{
+    opacity:0;
+    transform:translateY(16px) scale(.985);
+  }
+  to{
+    opacity:1;
+    transform:translateY(0) scale(1);
+  }
 }
 .gkmp-top{
-  padding:20px 20px 12px 20px;
+  padding:22px 22px 12px 22px;
   border-bottom:1px solid rgba(255,255,255,.06);
 }
 .gkmp-kicker{
   display:inline-block;
   font-size:12px;
-  font-weight:700;
-  letter-spacing:.04em;
+  font-weight:800;
+  letter-spacing:.06em;
   text-transform:uppercase;
   color:#9fd66f;
   margin-bottom:8px;
 }
 .gkmp-title{
   margin:0;
-  font-size:clamp(24px,3vw,32px);
-  line-height:1.15;
+  font-size:clamp(24px,3vw,34px);
+  line-height:1.12;
   color:#fff;
 }
 .gkmp-body{
-  padding:16px 20px 20px 20px;
+  padding:16px 22px 22px 22px;
 }
 .gkmp-alert{
-  background:linear-gradient(180deg, rgba(255,190,60,.18) 0%, rgba(255,190,60,.10) 100%);
-  border:1px solid rgba(255,190,60,.35);
-  color:#fff7df;
+  background:linear-gradient(180deg, rgba(255,179,71,.22) 0%, rgba(255,179,71,.12) 100%);
+  border:1px solid rgba(255,190,60,.38);
+  box-shadow:inset 0 0 0 1px rgba(255,255,255,.03);
+  color:#fff8e7;
   border-radius:16px;
   padding:14px 15px;
   font-size:14px;
   line-height:1.5;
   margin-bottom:14px;
-  font-weight:700;
+  font-weight:800;
 }
 .gkmp-card{
   background:rgba(255,255,255,.04);
   border:1px solid rgba(255,255,255,.06);
-  border-radius:16px;
-  padding:14px;
+  border-radius:18px;
+  padding:15px;
   margin-bottom:12px;
+}
+.gkmp-card-discount{
+  background:linear-gradient(180deg, rgba(159,214,111,.14) 0%, rgba(159,214,111,.07) 100%);
+  border:1px solid rgba(159,214,111,.24);
+  box-shadow:0 8px 24px rgba(0,0,0,.12);
 }
 .gkmp-label{
   font-size:13px;
-  font-weight:700;
+  font-weight:800;
   color:#9fd66f;
   margin:0 0 6px 0;
   text-transform:uppercase;
-  letter-spacing:.04em;
+  letter-spacing:.05em;
 }
 .gkmp-group{
   font-size:19px;
-  font-weight:800;
+  font-weight:900;
   margin:0;
   color:#fff;
 }
@@ -536,6 +554,10 @@
 .gkmp-list li:last-child{
   margin-bottom:0;
 }
+.gkmp-list-strong li{
+  font-weight:700;
+  color:#f8fff0;
+}
 .gkmp-p{
   margin:0 0 10px 0;
   line-height:1.55;
@@ -543,18 +565,21 @@
 }
 .gkmp-gift{
   margin-top:10px;
-  background:linear-gradient(180deg, rgba(159,214,111,.14) 0%, rgba(159,214,111,.08) 100%);
-  border:1px solid rgba(159,214,111,.24);
+  background:linear-gradient(180deg, rgba(159,214,111,.18) 0%, rgba(159,214,111,.09) 100%);
+  border:1px solid rgba(159,214,111,.28);
   color:#f5ffe9;
   border-radius:16px;
   padding:14px;
   line-height:1.45;
+  box-shadow:0 10px 26px rgba(0,0,0,.14);
 }
 .gkmp-gift-amount{
   display:inline-block;
   font-weight:900;
-  font-size:20px;
+  font-size:22px;
   color:#9fd66f;
+  text-shadow:0 0 18px rgba(159,214,111,.16);
+  padding:0 4px;
 }
 .gkmp-actions{
   display:flex;
@@ -571,10 +596,15 @@
   padding:12px 16px;
   font-weight:800;
   font-size:15px;
+  transition:transform .12s ease, opacity .12s ease, box-shadow .12s ease;
+}
+.gkmp-btn:hover{
+  transform:translateY(-1px);
 }
 .gkmp-btn-primary{
   background:#9fd66f;
   color:#0e151f;
+  box-shadow:0 10px 24px rgba(159,214,111,.18);
 }
 .gkmp-btn-secondary{
   background:rgba(255,255,255,.08);
@@ -601,7 +631,7 @@
   }
   #gk-member-popup{
     width:100%;
-    border-radius:18px 18px 0 0;
+    border-radius:20px 20px 0 0;
   }
   .gkmp-actions{
     flex-direction:column;
@@ -641,11 +671,14 @@
       `
       : "";
 
+    var benefitCardClass = content.hasDiscountInfo ? "gkmp-card gkmp-card-discount" : "gkmp-card";
+    var benefitListClass = content.hasDiscountInfo ? "gkmp-list gkmp-list-strong" : "gkmp-list";
+
     var benefitHtml = content.showBenefitCard && content.benefitLines && content.benefitLines.length
       ? `
-        <div class="gkmp-card">
+        <div class="${benefitCardClass}">
           <div class="gkmp-label">Dine fordeler</div>
-          <ul class="gkmp-list">
+          <ul class="${benefitListClass}">
             ${content.benefitLines.map(function (line) {
               return "<li>" + escapeHtml(line) + "</li>";
             }).join("")}
@@ -716,10 +749,6 @@
     });
   }
 
-  /* =========================================================
-     RUN
-     ========================================================= */
-
   async function run() {
     try {
       if (!CONFIG.popupEnabled) {
@@ -739,21 +768,22 @@
         return;
       }
 
-      var identity = await getLoggedInIdentity();
+      var identityPromise = getLoggedInIdentity();
+      var membersPromise = fetchMembers().catch(function (e) {
+        log("member fetch failed, using default popup", e);
+        return null;
+      });
+
+      var identity = await identityPromise;
       log("identity", identity);
 
       if (!shouldShowPopup(identity)) {
         return;
       }
 
-      var member = null;
-      try {
-        var members = await fetchMembers();
-        member = findMember(identity, members);
-        log("member match", member);
-      } catch (e) {
-        log("member fetch failed, using default popup", e);
-      }
+      var members = await membersPromise;
+      var member = members ? findMember(identity, members) : null;
+      log("member match", member);
 
       var content = getPopupContent(identity, member);
       openPopup(content, identity);
