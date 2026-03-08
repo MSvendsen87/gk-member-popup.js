@@ -3,29 +3,60 @@
 
   /* =========================================================
      GK MEMBER POPUP CONFIG
-     Endre dette øverst når du vil justere grupper, priser, tekst
+     Her kan du enkelt skru av/på og endre tekst/priser/grupper
      ========================================================= */
 
   var CONFIG = {
     debug: true,
+
     pagePath: "/customer/index",
     memberApi: "https://cold-shadow-36dc.post-cd6.workers.dev/club-members",
     minBaggUrl: "https://golfkongen.no/sider/min-bag",
+
+    /* =========================
+       BRYTERE (true / false)
+       ========================= */
+
+    popupEnabled: true,              // false = hele popupen er av
+    showOnCustomerIndexOnly: true,   // true = kun /customer/index
+    showEveryLogin: true,            // true = vis ved hver login / ny bruker i samme økt
+    showOncePerDay: false,           // true = vis maks én gang per dag per bruker
+    showDiscountIntro: true,         // true = vis tydelig rabattvarsel for brukere med rabatter
+    showBenefitCard: true,           // true = vis "Dine fordeler"
+    showMinBaggPromo: false,          // true = vis Min Bagg + gavekort i bunnen
+
+    /* =========================
+       Nøkler for lagring
+       ========================= */
+
     sessionKeyPrefix: "gk_member_popup_seen",
+    dailyKeyPrefix: "gk_member_popup_daily",
+
+    /* =========================
+       Tekster
+       ========================= */
 
     texts: {
       introDiscount:
-        "OBS: Prisene du ser i butikken er full pris. Eventuelle rabatter trekkes fra først i kassen.",
+        "OBS: Du kan ha egne rabatter og fordeler på kontoen din. Prisene du ser i butikken er full pris, og eventuelle rabatter trekkes først fra i kassen.",
+
       minBaggTitle: "Bruk Min Bagg",
       minBaggText:
         "Registrer discene dine i Min Bagg og bli automatisk med i den månedlige trekningen.",
+
       giftcardPrefix: "Hver måned trekker vi en vinner av",
       giftcardValue: "400 kr gavekort",
       giftcardSuffix: "på GolfKongen.no blant de som har registrert baggen sin.",
+
       minBaggButton: "Åpne Min Bagg",
       closeButton: "Lukk",
       defaultLabel: ""
     },
+
+    /* =========================
+       Gruppeoppsett
+       Høyere priority = sterkere fordel
+       ========================= */
 
     groups: {
       ansatte: {
@@ -145,6 +176,36 @@
       .replace(/'/g, "&#39;");
   }
 
+  function getTodayKey() {
+    var d = new Date();
+    var yyyy = d.getFullYear();
+    var mm = String(d.getMonth() + 1).padStart(2, "0");
+    var dd = String(d.getDate()).padStart(2, "0");
+    return yyyy + "-" + mm + "-" + dd;
+  }
+
+  function getUserStorageSlug(identity) {
+    var raw = String(identity.email || identity.name || "guest")
+      .toLowerCase()
+      .trim();
+
+    raw = raw
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "");
+
+    return raw || "guest";
+  }
+
+  function getUserSessionKey(identity) {
+    return CONFIG.sessionKeyPrefix + "_" + getUserStorageSlug(identity);
+  }
+
+  function getUserDailyKey(identity) {
+    return CONFIG.dailyKeyPrefix + "_" + getUserStorageSlug(identity) + "_" + getTodayKey();
+  }
+
   async function fetchSameOrigin(url) {
     return fetch(url, {
       method: "GET",
@@ -162,11 +223,7 @@
       var hasLogoutLink = /\/customer\/logout/i.test(html);
       var hasMyPages = /\/customer\/index/i.test(html) && /customer/i.test(html);
 
-      if (hasCustomerName || hasLogoutLink || hasMyPages) {
-        return true;
-      }
-
-      return false;
+      return !!(hasCustomerName || hasLogoutLink || hasMyPages);
     } catch (e) {
       log("isLoggedIn error", e);
       return false;
@@ -252,20 +309,6 @@
     }) || null;
   }
 
-  function getUserSessionKey(identity) {
-    var raw = String(identity.email || identity.name || "guest")
-      .toLowerCase()
-      .trim();
-
-    raw = raw
-      .normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "")
-      .replace(/[^a-z0-9]+/g, "_")
-      .replace(/^_+|_+$/g, "");
-
-    return CONFIG.sessionKeyPrefix + "_" + (raw || "guest");
-  }
-
   function uniquePush(arr, value) {
     if (value && arr.indexOf(value) === -1) arr.push(value);
   }
@@ -287,7 +330,6 @@
       var cfg = item.cfg;
 
       if (cfg.label) uniquePush(labels, cfg.label);
-
       if (cfg.clubNight) hasClubNight = true;
 
       if (cfg.retailText) {
@@ -350,12 +392,59 @@
     return {
       greeting: "Velkommen " + firstName + " 👋",
       groupLabel: resolved.labels.join(" / "),
-      intro: resolved.hasAnyDiscountInfo ? CONFIG.texts.introDiscount : "",
+      intro: (CONFIG.showDiscountIntro && resolved.hasAnyDiscountInfo) ? CONFIG.texts.introDiscount : "",
       benefitLines: resolved.lines,
-      showBenefitCard: resolved.lines.length > 0,
+      showBenefitCard: CONFIG.showBenefitCard && resolved.lines.length > 0,
       minBaggTitle: CONFIG.texts.minBaggTitle,
       minBaggText: CONFIG.texts.minBaggText
     };
+  }
+
+  function shouldShowPopup(identity) {
+    if (!CONFIG.popupEnabled) {
+      log("popup disabled");
+      return false;
+    }
+
+    if (CONFIG.showEveryLogin) {
+      return true;
+    }
+
+    try {
+      if (CONFIG.showOncePerDay) {
+        var dailyKey = getUserDailyKey(identity);
+        if (localStorage.getItem(dailyKey) === "1") {
+          log("already shown today for user", dailyKey);
+          return false;
+        }
+        return true;
+      }
+
+      var sessionKey = getUserSessionKey(identity);
+      if (sessionStorage.getItem(sessionKey) === "1") {
+        log("already shown this session for user", sessionKey);
+        return false;
+      }
+    } catch (e) {
+      log("shouldShowPopup storage check failed", e);
+    }
+
+    return true;
+  }
+
+  function markPopupShown(identity) {
+    try {
+      if (CONFIG.showEveryLogin) return;
+
+      if (CONFIG.showOncePerDay) {
+        localStorage.setItem(getUserDailyKey(identity), "1");
+        return;
+      }
+
+      sessionStorage.setItem(getUserSessionKey(identity), "1");
+    } catch (e) {
+      log("markPopupShown failed", e);
+    }
   }
 
   /* =========================================================
@@ -535,12 +624,12 @@
     if (overlay) overlay.remove();
   }
 
-  function openPopup(content, sessionKey) {
+  function openPopup(content, identity) {
     closePopup();
     ensureStyles();
 
     var introHtml = content.intro
-      ? '<div class="gkmp-alert">' + escapeHtml(content.intro) + '</div>'
+      ? '<div class="gkmp-alert">' + escapeHtml(content.intro) + "</div>"
       : "";
 
     var groupHtml = content.groupLabel
@@ -565,6 +654,30 @@
       `
       : "";
 
+    var promoHtml = CONFIG.showMinBaggPromo
+      ? `
+        <div class="gkmp-card">
+          <div class="gkmp-label">${escapeHtml(content.minBaggTitle)}</div>
+          <p class="gkmp-p">${escapeHtml(content.minBaggText)}</p>
+
+          <div class="gkmp-gift">
+            ${escapeHtml(CONFIG.texts.giftcardPrefix)}
+            <span class="gkmp-gift-amount">${escapeHtml(CONFIG.texts.giftcardValue)}</span>
+            ${escapeHtml(CONFIG.texts.giftcardSuffix)}
+          </div>
+
+          <div class="gkmp-actions">
+            <a class="gkmp-btn gkmp-btn-primary" href="${escapeHtml(CONFIG.minBaggUrl)}">${escapeHtml(CONFIG.texts.minBaggButton)}</a>
+            <button class="gkmp-btn gkmp-btn-secondary" type="button" id="gkmp-close-btn">${escapeHtml(CONFIG.texts.closeButton)}</button>
+          </div>
+        </div>
+      `
+      : `
+        <div class="gkmp-actions">
+          <button class="gkmp-btn gkmp-btn-secondary" type="button" id="gkmp-close-btn">${escapeHtml(CONFIG.texts.closeButton)}</button>
+        </div>
+      `;
+
     var html = `
       <div id="gk-member-popup-overlay">
         <div id="gk-member-popup" class="gkmp-wrap" role="dialog" aria-modal="true" aria-label="Medlemsfordeler">
@@ -579,22 +692,7 @@
             ${introHtml}
             ${groupHtml}
             ${benefitHtml}
-
-            <div class="gkmp-card">
-              <div class="gkmp-label">${escapeHtml(content.minBaggTitle)}</div>
-              <p class="gkmp-p">${escapeHtml(content.minBaggText)}</p>
-
-              <div class="gkmp-gift">
-                ${escapeHtml(CONFIG.texts.giftcardPrefix)}
-                <span class="gkmp-gift-amount">${escapeHtml(CONFIG.texts.giftcardValue)}</span>
-                ${escapeHtml(CONFIG.texts.giftcardSuffix)}
-              </div>
-
-              <div class="gkmp-actions">
-                <a class="gkmp-btn gkmp-btn-primary" href="${escapeHtml(CONFIG.minBaggUrl)}">${escapeHtml(CONFIG.texts.minBaggButton)}</a>
-                <button class="gkmp-btn gkmp-btn-secondary" type="button" id="gkmp-close-btn">${escapeHtml(CONFIG.texts.closeButton)}</button>
-              </div>
-            </div>
+            ${promoHtml}
           </div>
         </div>
       </div>
@@ -607,9 +705,7 @@
     var closeBtn = document.getElementById("gkmp-close-btn");
 
     function done() {
-      try {
-        if (sessionKey) sessionStorage.setItem(sessionKey, "1");
-      } catch (e) {}
+      markPopupShown(identity);
       closePopup();
     }
 
@@ -626,8 +722,13 @@
 
   async function run() {
     try {
+      if (!CONFIG.popupEnabled) {
+        log("popup disabled by config");
+        return;
+      }
+
       var path = normalizePath(location.pathname);
-      if (path !== CONFIG.pagePath) {
+      if (CONFIG.showOnCustomerIndexOnly && path !== CONFIG.pagePath) {
         log("wrong path", path);
         return;
       }
@@ -641,14 +742,9 @@
       var identity = await getLoggedInIdentity();
       log("identity", identity);
 
-      var userSessionKey = getUserSessionKey(identity);
-
-      try {
-        if (sessionStorage.getItem(userSessionKey) === "1") {
-          log("already shown this session for user", userSessionKey);
-          return;
-        }
-      } catch (e) {}
+      if (!shouldShowPopup(identity)) {
+        return;
+      }
 
       var member = null;
       try {
@@ -660,7 +756,7 @@
       }
 
       var content = getPopupContent(identity, member);
-      openPopup(content, userSessionKey);
+      openPopup(content, identity);
     } catch (e) {
       log("fatal error", e);
     }
