@@ -149,21 +149,24 @@
   }
 
   async function isLoggedIn() {
-    try {
-      var r = await fetchSameOrigin("/customer/index");
-      var html = await r.text();
+  try {
+    var r = await fetchSameOrigin("/customer/index");
+    var html = await r.text();
 
-      var isLoginPage =
-        /customer-login/i.test(html) ||
-        /login-form/i.test(html) ||
-        /\/customer\/login/i.test(html);
+    var hasCustomerName = /customer-nav-name/i.test(html);
+    var hasLogoutLink = /\/customer\/logout/i.test(html);
+    var hasMyPages = /\/customer\/index/i.test(html) && /customer/i.test(html);
 
-      return !isLoginPage;
-    } catch (e) {
-      log("isLoggedIn error", e);
-      return false;
+    if (hasCustomerName || hasLogoutLink || hasMyPages) {
+      return true;
     }
+
+    return false;
+  } catch (e) {
+    log("isLoggedIn error", e);
+    return false;
   }
+}
 
   async function getLoggedInIdentity() {
     var paths = [
