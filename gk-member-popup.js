@@ -11,12 +11,17 @@
     pagePath: "/customer/index",
     memberApi: "https://cold-shadow-36dc.post-cd6.workers.dev/club-members",
     minBaggUrl: "https://golfkongen.no/sider/min-bag",
-    sessionKey: "gk_member_popup_seen",
+    sessionKeyPrefix: "gk_member_popup_seen",
 
     texts: {
-      intro: "Prisene du ser i butikken er full pris. Eventuelle rabatter trekkes fra først i kassen.",
+      introDiscount:
+        "OBS: Prisene du ser i butikken er full pris. Eventuelle rabatter trekkes fra først i kassen.",
       minBaggTitle: "Bruk Min Bagg",
-      minBaggText: "Registrer discene dine i Min Bagg. Hver måned trekker vi en vinner av gavekort på 400 kr på GolfKongen.no blant de som har registrert baggen sin.",
+      minBaggText:
+        "Registrer discene dine i Min Bagg og bli automatisk med i den månedlige trekningen.",
+      giftcardPrefix: "Hver måned trekker vi en vinner av",
+      giftcardValue: "400 kr gavekort",
+      giftcardSuffix: "på GolfKongen.no blant de som har registrert baggen sin.",
       minBaggButton: "Åpne Min Bagg",
       closeButton: "Lukk",
       defaultLabel: ""
@@ -149,24 +154,24 @@
   }
 
   async function isLoggedIn() {
-  try {
-    var r = await fetchSameOrigin("/customer/index");
-    var html = await r.text();
+    try {
+      var r = await fetchSameOrigin("/customer/index");
+      var html = await r.text();
 
-    var hasCustomerName = /customer-nav-name/i.test(html);
-    var hasLogoutLink = /\/customer\/logout/i.test(html);
-    var hasMyPages = /\/customer\/index/i.test(html) && /customer/i.test(html);
+      var hasCustomerName = /customer-nav-name/i.test(html);
+      var hasLogoutLink = /\/customer\/logout/i.test(html);
+      var hasMyPages = /\/customer\/index/i.test(html) && /customer/i.test(html);
 
-    if (hasCustomerName || hasLogoutLink || hasMyPages) {
-      return true;
+      if (hasCustomerName || hasLogoutLink || hasMyPages) {
+        return true;
+      }
+
+      return false;
+    } catch (e) {
+      log("isLoggedIn error", e);
+      return false;
     }
-
-    return false;
-  } catch (e) {
-    log("isLoggedIn error", e);
-    return false;
   }
-}
 
   async function getLoggedInIdentity() {
     var paths = [
@@ -247,6 +252,20 @@
     }) || null;
   }
 
+  function getUserSessionKey(identity) {
+    var raw = String(identity.email || identity.name || "guest")
+      .toLowerCase()
+      .trim();
+
+    raw = raw
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "");
+
+    return CONFIG.sessionKeyPrefix + "_" + (raw || "guest");
+  }
+
   function uniquePush(arr, value) {
     if (value && arr.indexOf(value) === -1) arr.push(value);
   }
@@ -296,9 +315,16 @@
     if (bestDart && bestDart.dartBookingText) lines.push(bestDart.dartBookingText);
     if (hasClubNight) lines.push("Tilgang til klubbkvelder");
 
+    var hasAnyDiscountInfo =
+      !!(bestRetail && bestRetail.retailText) ||
+      !!(bestDisc && bestDisc.discBookingText) ||
+      !!(bestDart && bestDart.dartBookingText);
+
     return {
       labels: labels,
-      lines: lines
+      lines: lines,
+      hasClubNight: hasClubNight,
+      hasAnyDiscountInfo: hasAnyDiscountInfo
     };
   }
 
@@ -310,8 +336,9 @@
       return {
         greeting: "Velkommen " + firstName + " 👋",
         groupLabel: CONFIG.texts.defaultLabel,
-        intro: CONFIG.texts.intro,
+        intro: "",
         benefitLines: [],
+        showBenefitCard: false,
         minBaggTitle: CONFIG.texts.minBaggTitle,
         minBaggText: CONFIG.texts.minBaggText
       };
@@ -323,8 +350,9 @@
     return {
       greeting: "Velkommen " + firstName + " 👋",
       groupLabel: resolved.labels.join(" / "),
-      intro: CONFIG.texts.intro,
+      intro: resolved.hasAnyDiscountInfo ? CONFIG.texts.introDiscount : "",
       benefitLines: resolved.lines,
+      showBenefitCard: resolved.lines.length > 0,
       minBaggTitle: CONFIG.texts.minBaggTitle,
       minBaggText: CONFIG.texts.minBaggText
     };
@@ -345,17 +373,17 @@
   padding:18px;
 }
 #gk-member-popup{
-  width:min(92vw,560px);
+  width:min(92vw,580px);
   background:linear-gradient(180deg,#101826 0%,#0c121d 100%);
   color:#eef4fb;
   border:1px solid rgba(255,255,255,.08);
-  border-radius:20px;
+  border-radius:22px;
   box-shadow:0 18px 60px rgba(0,0,0,.45);
   overflow:hidden;
   font-family:inherit;
 }
 .gkmp-top{
-  padding:18px 18px 10px 18px;
+  padding:20px 20px 12px 20px;
   border-bottom:1px solid rgba(255,255,255,.06);
 }
 .gkmp-kicker{
@@ -374,17 +402,18 @@
   color:#fff;
 }
 .gkmp-body{
-  padding:16px 18px 18px 18px;
+  padding:16px 20px 20px 20px;
 }
 .gkmp-alert{
-  background:rgba(159,214,111,.09);
-  border:1px solid rgba(159,214,111,.20);
-  color:#f4ffe8;
-  border-radius:14px;
-  padding:12px 14px;
+  background:linear-gradient(180deg, rgba(255,190,60,.18) 0%, rgba(255,190,60,.10) 100%);
+  border:1px solid rgba(255,190,60,.35);
+  color:#fff7df;
+  border-radius:16px;
+  padding:14px 15px;
   font-size:14px;
-  line-height:1.45;
+  line-height:1.5;
   margin-bottom:14px;
+  font-weight:700;
 }
 .gkmp-card{
   background:rgba(255,255,255,.04);
@@ -415,11 +444,28 @@
   margin:0 0 8px 0;
   line-height:1.45;
 }
-.gkmp-list li:last-child{ margin-bottom:0; }
+.gkmp-list li:last-child{
+  margin-bottom:0;
+}
 .gkmp-p{
-  margin:0;
+  margin:0 0 10px 0;
   line-height:1.55;
   color:#e6edf7;
+}
+.gkmp-gift{
+  margin-top:10px;
+  background:linear-gradient(180deg, rgba(159,214,111,.14) 0%, rgba(159,214,111,.08) 100%);
+  border:1px solid rgba(159,214,111,.24);
+  color:#f5ffe9;
+  border-radius:16px;
+  padding:14px;
+  line-height:1.45;
+}
+.gkmp-gift-amount{
+  display:inline-block;
+  font-weight:900;
+  font-size:20px;
+  color:#9fd66f;
 }
 .gkmp-actions{
   display:flex;
@@ -460,10 +506,21 @@
   position:relative;
 }
 @media (max-width:640px){
-  #gk-member-popup-overlay{ padding:12px; align-items:flex-end; }
-  #gk-member-popup{ width:100%; border-radius:18px 18px 0 0; }
-  .gkmp-actions{ flex-direction:column; }
-  .gkmp-btn{ width:100%; text-align:center; }
+  #gk-member-popup-overlay{
+    padding:12px;
+    align-items:flex-end;
+  }
+  #gk-member-popup{
+    width:100%;
+    border-radius:18px 18px 0 0;
+  }
+  .gkmp-actions{
+    flex-direction:column;
+  }
+  .gkmp-btn{
+    width:100%;
+    text-align:center;
+  }
 }
     `.trim();
 
@@ -478,9 +535,13 @@
     if (overlay) overlay.remove();
   }
 
-  function openPopup(content) {
+  function openPopup(content, sessionKey) {
     closePopup();
     ensureStyles();
+
+    var introHtml = content.intro
+      ? '<div class="gkmp-alert">' + escapeHtml(content.intro) + '</div>'
+      : "";
 
     var groupHtml = content.groupLabel
       ? `
@@ -491,7 +552,7 @@
       `
       : "";
 
-    var benefitHtml = content.benefitLines && content.benefitLines.length
+    var benefitHtml = content.showBenefitCard && content.benefitLines && content.benefitLines.length
       ? `
         <div class="gkmp-card">
           <div class="gkmp-label">Dine fordeler</div>
@@ -515,14 +576,19 @@
           </div>
 
           <div class="gkmp-body">
-            <div class="gkmp-alert">${escapeHtml(content.intro)}</div>
-
+            ${introHtml}
             ${groupHtml}
             ${benefitHtml}
 
             <div class="gkmp-card">
               <div class="gkmp-label">${escapeHtml(content.minBaggTitle)}</div>
               <p class="gkmp-p">${escapeHtml(content.minBaggText)}</p>
+
+              <div class="gkmp-gift">
+                ${escapeHtml(CONFIG.texts.giftcardPrefix)}
+                <span class="gkmp-gift-amount">${escapeHtml(CONFIG.texts.giftcardValue)}</span>
+                ${escapeHtml(CONFIG.texts.giftcardSuffix)}
+              </div>
 
               <div class="gkmp-actions">
                 <a class="gkmp-btn gkmp-btn-primary" href="${escapeHtml(CONFIG.minBaggUrl)}">${escapeHtml(CONFIG.texts.minBaggButton)}</a>
@@ -541,7 +607,9 @@
     var closeBtn = document.getElementById("gkmp-close-btn");
 
     function done() {
-      try { sessionStorage.setItem(CONFIG.sessionKey, "1"); } catch (e) {}
+      try {
+        if (sessionKey) sessionStorage.setItem(sessionKey, "1");
+      } catch (e) {}
       closePopup();
     }
 
@@ -564,13 +632,6 @@
         return;
       }
 
-      try {
-        if (sessionStorage.getItem(CONFIG.sessionKey) === "1") {
-          log("already shown this session");
-          return;
-        }
-      } catch (e) {}
-
       var loggedIn = await isLoggedIn();
       if (!loggedIn) {
         log("not logged in");
@@ -579,6 +640,15 @@
 
       var identity = await getLoggedInIdentity();
       log("identity", identity);
+
+      var userSessionKey = getUserSessionKey(identity);
+
+      try {
+        if (sessionStorage.getItem(userSessionKey) === "1") {
+          log("already shown this session for user", userSessionKey);
+          return;
+        }
+      } catch (e) {}
 
       var member = null;
       try {
@@ -590,7 +660,7 @@
       }
 
       var content = getPopupContent(identity, member);
-      openPopup(content);
+      openPopup(content, userSessionKey);
     } catch (e) {
       log("fatal error", e);
     }
