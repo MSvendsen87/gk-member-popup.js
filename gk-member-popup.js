@@ -21,7 +21,7 @@
 
     texts: {
       introDiscount:
-        "OBS: Du kan ha egne rabatter og fordeler på kontoen din. Prisene du ser i butikken er full pris, og eventuelle rabatter trekkes først fra i kassen.",
+        "OBS: Du kan ha egne priser og fordeler gjennom kundegruppen din. Kontroller at riktig kundegruppepris vises i kassen før du betaler.",
 
       minBaggTitle: "Bruk Min Bagg",
       minBaggText:
@@ -40,8 +40,8 @@
       ansatte: {
         label: "Ansatte",
         retailText: "30% rabatt i hele butikken",
-        discBookingText: "98% rabatt på booking av disc simulator",
-        dartBookingText: "98% rabatt på booking av dart",
+        discBookingText: "Egen fast ansattpris på HYZR-simulator – se prisen i kassen",
+        dartBookingText: "Egen fast ansattpris på dart – se prisen i kassen",
         clubNight: true,
         retailPriority: 100,
         discBookingPriority: 100,
