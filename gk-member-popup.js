@@ -354,15 +354,21 @@
     var bestRetail = null;
     var bestDisc = null;
     var bestDart = null;
-    var hasClubNight = false;
-    var clubNightLines = [];
+    var bestClubNight = null;
     var labels = [];
 
     activeGroups.forEach(function (item) {
       var cfg = item.cfg;
 
       if (cfg.label) uniquePush(labels, cfg.label);
-      if (cfg.clubNight) { hasClubNight = true; uniquePush(clubNightLines, cfg.clubNightText || "Tilgang til klubbkvelder"); }
+      if (cfg.clubNight) {
+        // Club access is one benefit; use the group's dart priority for its text.
+        if (!bestClubNight ||
+            (cfg.dartBookingPriority || 0) > (bestClubNight.cfg.dartBookingPriority || 0) ||
+            ((cfg.dartBookingPriority || 0) === (bestClubNight.cfg.dartBookingPriority || 0) && item.key < bestClubNight.key)) {
+          bestClubNight = item;
+        }
+      }
 
       if (cfg.retailText) {
         if (!bestRetail || (cfg.retailPriority || 0) > (bestRetail.retailPriority || 0)) {
@@ -387,7 +393,7 @@
     if (bestRetail && bestRetail.retailText) lines.push(bestRetail.retailText);
     if (bestDisc && bestDisc.discBookingText) lines.push(bestDisc.discBookingText);
     if (bestDart && bestDart.dartBookingText) lines.push(bestDart.dartBookingText);
-    if (hasClubNight) clubNightLines.forEach(function (line) { uniquePush(lines, line); });
+    if (bestClubNight) uniquePush(lines, bestClubNight.cfg.clubNightText || "Tilgang til klubbkvelder");
 
     var hasAnyDiscountInfo =
       !!(bestRetail && bestRetail.retailText) ||
