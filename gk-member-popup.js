@@ -2,7 +2,7 @@
   "use strict";
 
   var CONFIG = {
-    debug: true,
+    debug: false,
 
     pagePath: "/customer/index",
     memberApi: "https://cold-shadow-36dc.post-cd6.workers.dev/club-members",
@@ -40,8 +40,8 @@
       ansatte: {
         label: "Ansatte",
         retailText: "30% rabatt i hele butikken",
-        discBookingText: "Egen fast ansattpris på HYZR-simulator – se prisen i kassen",
-        dartBookingText: "Egen fast ansattpris på dart – se prisen i kassen",
+        discBookingText: "98% rabatt på booking av disc simulator",
+        dartBookingText: "98% rabatt på booking av dart",
         clubNight: true,
         retailPriority: 100,
         discBookingPriority: 100,
@@ -104,6 +104,37 @@
       }
     }
   };
+
+  async function refreshBenefitTexts() {
+    var controller = new AbortController();
+    var timeout = setTimeout(function () { controller.abort(); }, 4000);
+    try {
+      var response = await fetch("https://eadgdcimcmfyuicizboo.supabase.co/functions/v1/gk-booking-v2/member-benefits", {
+        cache: "no-store", credentials: "omit", signal: controller.signal
+      });
+      if (!response.ok) throw new Error("benefit_config_unavailable");
+      var data = await response.json();
+      if (!data || data.ok !== true || data.schemaVersion !== 1 || !data.groups) throw new Error("invalid_benefit_config");
+      // Only allow known presentation fields. This data never grants membership or changes prices.
+      Object.keys(data.groups).forEach(function (key) {
+        if (!/^(ansatte|teamgolfkongen|ambassador|medlemmer|betalt_medlem|frisbee_dart|frisbeeklubb|dartklubb)$/.test(key)) return;
+        var raw = data.groups[key], valid = raw && typeof raw === "object";
+        ["label","retailText","discBookingText","dartBookingText","clubNightText"].forEach(function (field) {
+          if (typeof raw?.[field] !== "string" || raw[field].length > 400) valid = false;
+        });
+        ["retailPriority","discBookingPriority","dartBookingPriority"].forEach(function (field) {
+          if (!Number.isInteger(raw?.[field]) || raw[field] < 0 || raw[field] > 100) valid = false;
+        });
+        if (valid) CONFIG.groups[key] = {
+          label: raw.label, retailText: raw.retailText, discBookingText: raw.discBookingText,
+          dartBookingText: raw.dartBookingText, clubNightText: raw.clubNightText,
+          clubNight: !!raw.clubNightText, retailPriority: raw.retailPriority,
+          discBookingPriority: raw.discBookingPriority, dartBookingPriority: raw.dartBookingPriority
+        };
+      });
+    } catch (e) { log("using built-in benefit descriptions", e?.message || "unavailable"); }
+    finally { clearTimeout(timeout); }
+  }
 
   function log() {
     if (!CONFIG.debug) return;
@@ -324,13 +355,14 @@
     var bestDisc = null;
     var bestDart = null;
     var hasClubNight = false;
+    var clubNightLines = [];
     var labels = [];
 
     activeGroups.forEach(function (item) {
       var cfg = item.cfg;
 
       if (cfg.label) uniquePush(labels, cfg.label);
-      if (cfg.clubNight) hasClubNight = true;
+      if (cfg.clubNight) { hasClubNight = true; uniquePush(clubNightLines, cfg.clubNightText || "Tilgang til klubbkvelder"); }
 
       if (cfg.retailText) {
         if (!bestRetail || (cfg.retailPriority || 0) > (bestRetail.retailPriority || 0)) {
@@ -355,7 +387,7 @@
     if (bestRetail && bestRetail.retailText) lines.push(bestRetail.retailText);
     if (bestDisc && bestDisc.discBookingText) lines.push(bestDisc.discBookingText);
     if (bestDart && bestDart.dartBookingText) lines.push(bestDart.dartBookingText);
-    if (hasClubNight) lines.push("Tilgang til klubbkvelder");
+    if (hasClubNight) clubNightLines.forEach(function (line) { uniquePush(lines, line); });
 
     var hasAnyDiscountInfo =
       !!(bestRetail && bestRetail.retailText) ||
@@ -768,6 +800,7 @@
         return;
       }
 
+      var benefitPromise = refreshBenefitTexts();
       var identityPromise = getLoggedInIdentity();
       var membersPromise = fetchMembers().catch(function (e) {
         log("member fetch failed, using default popup", e);
@@ -785,6 +818,7 @@
       var member = members ? findMember(identity, members) : null;
       log("member match", member);
 
+      await benefitPromise;
       var content = getPopupContent(identity, member);
       openPopup(content, identity);
     } catch (e) {
